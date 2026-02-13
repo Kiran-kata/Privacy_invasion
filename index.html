@@ -1,0 +1,853 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="mobile-web-app-capable" content="yes">
+    <title>Privacy Shield - Anti-Peeping Guard</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/face-api.js@0.22.2/dist/face-api.min.js"></script>
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <link rel="manifest" href="manifest.json">
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&display=swap');
+        
+        body {
+            font-family: 'Inter', sans-serif;
+            background: #0f172a;
+            color: white;
+            overflow-x: hidden;
+        }
+        
+        .privacy-active {
+            filter: blur(20px) brightness(0.1);
+            pointer-events: none;
+            user-select: none;
+        }
+        
+        .glass-panel {
+            background: rgba(255, 255, 255, 0.05);
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+        
+        .scan-line {
+            position: absolute;
+            width: 100%;
+            height: 2px;
+            background: linear-gradient(90deg, transparent, #3b82f6, transparent);
+            animation: scan 2s linear infinite;
+            top: 0;
+        }
+        
+        @keyframes scan {
+            0% { top: 0; opacity: 0; }
+            10% { opacity: 1; }
+            90% { opacity: 1; }
+            100% { top: 100%; opacity: 0; }
+        }
+        
+        .pulse-ring {
+            animation: pulse-ring 2s cubic-bezier(0.215, 0.61, 0.355, 1) infinite;
+        }
+        
+        @keyframes pulse-ring {
+            0% { transform: scale(0.8); opacity: 0.8; }
+            100% { transform: scale(1.3); opacity: 0; }
+        }
+        
+        #webcam-container {
+            position: relative;
+            overflow: hidden;
+        }
+        
+        .warning-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0, 0, 0, 0.95);
+            z-index: 9999;
+            display: none;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            backdrop-filter: blur(20px);
+        }
+        
+        .warning-overlay.active {
+            display: flex;
+        }
+        
+        .toggle-switch {
+            width: 60px;
+            height: 32px;
+            background: #374151;
+            border-radius: 16px;
+            position: relative;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+        
+        .toggle-switch.active {
+            background: #3b82f6;
+        }
+        
+        .toggle-switch::after {
+            content: '';
+            position: absolute;
+            width: 24px;
+            height: 24px;
+            background: white;
+            border-radius: 50%;
+            top: 4px;
+            left: 4px;
+            transition: all 0.3s;
+        }
+        
+        .toggle-switch.active::after {
+            left: 32px;
+        }
+        
+        .face-box {
+            position: absolute;
+            border: 2px solid #3b82f6;
+            border-radius: 8px;
+            pointer-events: none;
+        }
+        
+        .face-box.unauthorized {
+            border-color: #ef4444;
+            background: rgba(239, 68, 68, 0.2);
+        }
+    </style>
+</head>
+<body class="min-h-screen bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900">
+    <!-- Privacy Warning Overlay -->
+    <div id="privacyWarning" class="warning-overlay">
+        <div class="text-center p-8 max-w-md">
+            <div class="w-24 h-24 bg-red-500 rounded-full flex items-center justify-center mx-auto mb-6 pulse-ring">
+                <i data-lucide="shield-alert" class="w-12 h-12 text-white"></i>
+            </div>
+            <h1 class="text-4xl font-bold text-red-500 mb-4">PRIVACY INVASION DETECTED!</h1>
+            <p class="text-xl text-gray-300 mb-6">Unauthorized face detected looking at your screen.</p>
+            <button onclick="dismissWarning(this)" class="bg-red-600 hover:bg-red-700 text-white px-8 py-3 rounded-full font-semibold transition-all transform hover:scale-105 select-none">
+                I Understand (Owner)
+            </button>
+            <p class="mt-4 text-sm text-gray-500">Press and hold for 3 seconds if you are the device owner</p>
+        </div>
+    </div>
+
+    <!-- Main App Container -->
+    <div id="mainContainer" class="container mx-auto px-4 py-6 max-w-md">
+        <!-- Header -->
+        <div class="text-center mb-8">
+            <div class="w-20 h-20 bg-gradient-to-r from-blue-500 to-purple-600 rounded-2xl flex items-center justify-center mx-auto mb-4 shadow-2xl">
+                <i data-lucide="shield" class="w-10 h-10 text-white"></i>
+            </div>
+            <h1 class="text-2xl font-bold mb-1">Privacy Shield</h1>
+            <p class="text-gray-400 text-sm">Anti-Peeping Protection</p>
+        </div>
+
+        <!-- Status Card -->
+        <div class="glass-panel rounded-2xl p-6 mb-6">
+            <div class="flex items-center justify-between mb-4">
+                <div class="flex items-center gap-3">
+                    <div id="statusIcon" class="w-3 h-3 rounded-full bg-gray-500"></div>
+                    <span id="statusText" class="font-semibold">System Offline</span>
+                </div>
+                <div class="toggle-switch" id="privacyToggle" onclick="togglePrivacy()"></div>
+            </div>
+            <p id="statusDescription" class="text-sm text-gray-400">Enable privacy protection to start monitoring</p>
+        </div>
+
+        <!-- Camera Preview -->
+        <div class="glass-panel rounded-2xl p-4 mb-6 relative">
+            <div class="flex justify-between items-center mb-3">
+                <h3 class="font-semibold flex items-center gap-2">
+                    <i data-lucide="camera" class="w-4 h-4"></i>
+                    Camera Feed
+                </h3>
+                <span id="faceCount" class="text-xs bg-gray-700 px-2 py-1 rounded-full">0 faces</span>
+            </div>
+            <div id="webcam-container" class="relative bg-black rounded-xl overflow-hidden aspect-video">
+                <video id="webcam" autoplay playsinline muted class="w-full h-full object-cover"></video>
+                <canvas id="overlay" class="absolute top-0 left-0 w-full h-full"></canvas>
+                <div id="scanLine" class="scan-line hidden"></div>
+                <div id="cameraPlaceholder" class="absolute inset-0 flex items-center justify-center text-gray-500">
+                    <div class="text-center">
+                        <i data-lucide="camera-off" class="w-12 h-12 mx-auto mb-2 opacity-50"></i>
+                        <p class="text-sm">Camera inactive</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Face Registration -->
+        <div class="glass-panel rounded-2xl p-6 mb-6">
+            <h3 class="font-semibold mb-4 flex items-center gap-2">
+                <i data-lucide="user-plus" class="w-5 h-5 text-blue-400"></i>
+                Face Registration
+            </h3>
+            
+            <div id="registrationArea">
+                <p class="text-sm text-gray-400 mb-4">Register your face to allow only you to view the screen without triggering privacy mode.</p>
+                
+                <button id="registerBtn" onclick="startRegistration()" class="w-full bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 text-white py-3 rounded-xl font-semibold transition-all transform hover:scale-[1.02] flex items-center justify-center gap-2 mb-3">
+                    <i data-lucide="scan-face" class="w-5 h-5"></i>
+                    Register My Face
+                </button>
+                
+                <div id="registrationProgress" class="hidden">
+                    <div class="w-full bg-gray-700 rounded-full h-2 mb-2">
+                        <div id="progressBar" class="bg-blue-500 h-2 rounded-full transition-all duration-300" style="width: 0%"></div>
+                    </div>
+                    <p id="progressText" class="text-sm text-center text-blue-400">Initializing...</p>
+                </div>
+            </div>
+
+            <div id="registeredInfo" class="hidden">
+                <div class="flex items-center gap-3 bg-green-900/30 border border-green-500/30 rounded-xl p-4 mb-4">
+                    <div class="w-12 h-12 bg-green-500/20 rounded-full flex items-center justify-content-center">
+                        <i data-lucide="check-circle" class="w-6 h-6 text-green-400"></i>
+                    </div>
+                    <div>
+                        <p class="font-semibold text-green-400">Face Registered</p>
+                        <p class="text-xs text-gray-400">Your face is authorized</p>
+                    </div>
+                </div>
+                <button onclick="clearRegistration()" class="w-full bg-red-900/30 hover:bg-red-900/50 text-red-400 border border-red-500/30 py-2 rounded-xl text-sm transition-all">
+                    Clear Registration
+                </button>
+            </div>
+        </div>
+
+        <!-- Settings -->
+        <div class="glass-panel rounded-2xl p-6 mb-6">
+            <h3 class="font-semibold mb-4 flex items-center gap-2">
+                <i data-lucide="settings" class="w-5 h-5 text-purple-400"></i>
+                Sensitivity Settings
+            </h3>
+            
+            <div class="space-y-4">
+                <div>
+                    <div class="flex justify-between mb-2">
+                        <span class="text-sm">Detection Sensitivity</span>
+                        <span id="sensitivityValue" class="text-sm text-blue-400">Medium</span>
+                    </div>
+                    <input type="range" id="sensitivitySlider" min="1" max="3" value="2" class="w-full h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer accent-blue-500" oninput="updateSensitivity(this.value)">
+                    <div class="flex justify-between text-xs text-gray-500 mt-1">
+                        <span>Low</span>
+                        <span>High</span>
+                    </div>
+                </div>
+                
+                <div class="flex items-center justify-between pt-2 border-t border-gray-700">
+                    <span class="text-sm flex items-center gap-2">
+                        <i data-lucide="moon" class="w-4 h-4"></i>
+                        Background Mode
+                    </span>
+                    <input type="checkbox" id="backgroundToggle" checked class="w-5 h-5 rounded border-gray-600 text-blue-600 focus:ring-blue-500 bg-gray-700" onchange="toggleBackgroundMode(this.checked)">
+                </div>
+                
+                <div class="flex items-center justify-between">
+                    <span class="text-sm flex items-center gap-2">
+                        <i data-lucide="eye-off" class="w-4 h-4"></i>
+                        Blur Entire Screen
+                    </span>
+                    <input type="checkbox" id="blurToggle" checked class="w-5 h-5 rounded border-gray-600 text-blue-600 focus:ring-blue-500 bg-gray-700">
+                </div>
+                
+                <div class="flex items-center justify-between">
+                    <span class="text-sm flex items-center gap-2">
+                        <i data-lucide="volume-2" class="w-4 h-4"></i>
+                        Sound Alert
+                    </span>
+                    <input type="checkbox" id="soundToggle" checked class="w-5 h-5 rounded border-gray-600 text-blue-600 focus:ring-blue-500 bg-gray-700">
+                </div>
+            </div>
+            
+            <p class="text-xs text-gray-500 mt-4 pt-3 border-t border-gray-700">
+                Background Mode keeps the screen awake and continues monitoring when the app is minimized or tab is switched.
+            </p>
+        </div>
+
+        <!-- Info -->
+        <div class="text-center text-xs text-gray-500 space-y-1">
+            <p>Privacy Shield works locally on your device.</p>
+            <p>No face data is sent to any server.</p>
+        </div>
+    </div>
+
+    <script>
+        // Initialize Lucide icons
+        lucide.createIcons();
+
+        // Global variables
+        let video = document.getElementById('webcam');
+        let canvas = document.getElementById('overlay');
+        let ctx = canvas.getContext('2d');
+        let stream = null;
+        let isPrivacyMode = false;
+        let isProcessing = false;
+        let registeredDescriptor = null;
+        let detectionInterval = null;
+        let audioContext = null;
+        let wakeLock = null;
+        let isBackgroundMode = false;
+        
+        // Load models
+        const MODEL_URL = 'https://cdn.jsdelivr.net/npm/@vladmandic/face-api@1.7.12/model';
+        
+        // Initialize audio context on first user interaction
+        function initAudio() {
+            if (!audioContext) {
+                audioContext = new (window.AudioContext || window.webkitAudioContext)();
+            }
+            if (audioContext.state === 'suspended') {
+                audioContext.resume();
+            }
+        }
+        
+        // Request wake lock to keep screen on
+        async function requestWakeLock() {
+            try {
+                if ('wakeLock' in navigator) {
+                    wakeLock = await navigator.wakeLock.request('screen');
+                    console.log('Wake Lock active');
+                    
+                    wakeLock.addEventListener('release', () => {
+                        console.log('Wake Lock released');
+                        if (isPrivacyMode && isBackgroundMode) {
+                            requestWakeLock(); // Try to reacquire
+                        }
+                    });
+                }
+            } catch (err) {
+                console.error('Wake Lock error:', err);
+            }
+        }
+        
+        function releaseWakeLock() {
+            if (wakeLock) {
+                wakeLock.release();
+                wakeLock = null;
+            }
+        }
+        
+        async function loadModels() {
+            try {
+                await faceapi.nets.tinyFaceDetector.loadFromUri(MODEL_URL);
+                await faceapi.nets.faceLandmark68Net.loadFromUri(MODEL_URL);
+                await faceapi.nets.faceRecognitionNet.loadFromUri(MODEL_URL);
+                console.log('Models loaded');
+                
+                // Check for stored face
+                const stored = localStorage.getItem('registeredFace');
+                if (stored) {
+                    registeredDescriptor = new Float32Array(JSON.parse(stored));
+                    showRegisteredState();
+                }
+            } catch (err) {
+                console.error('Error loading models:', err);
+                alert('Failed to load face detection models. Please check your connection.');
+            }
+        }
+
+        // Initialize
+        window.onload = () => {
+            loadModels();
+            updateStatus('offline');
+        };
+
+        // Toggle Privacy Mode
+        async function togglePrivacy() {
+            const toggle = document.getElementById('privacyToggle');
+            
+            // Initialize audio on first interaction
+            initAudio();
+            
+            if (!isPrivacyMode) {
+                // Turn on
+                if (!registeredDescriptor) {
+                    alert('Please register your face first before enabling privacy mode.');
+                    return;
+                }
+                
+                try {
+                    stream = await navigator.mediaDevices.getUserMedia({ 
+                        video: { 
+                            facingMode: 'user',
+                            width: { ideal: 640 },
+                            height: { ideal: 480 }
+                        } 
+                    });
+                    video.srcObject = stream;
+                    
+                    video.onloadedmetadata = () => {
+                        canvas.width = video.videoWidth;
+                        canvas.height = video.videoHeight;
+                        isPrivacyMode = true;
+                        isBackgroundMode = true;
+                        toggle.classList.add('active');
+                        document.getElementById('scanLine').classList.remove('hidden');
+                        document.getElementById('cameraPlaceholder').classList.add('hidden');
+                        updateStatus('active');
+                        startDetection();
+                        requestWakeLock(); // Keep screen on
+                    };
+                } catch (err) {
+                    console.error('Camera error:', err);
+                    alert('Unable to access camera. Please allow camera permissions.');
+                }
+            } else {
+                // Turn off
+                stopPrivacyMode();
+            }
+        }
+
+        function stopPrivacyMode() {
+            const toggle = document.getElementById('privacyToggle');
+            toggle.classList.remove('active');
+            
+            if (stream) {
+                stream.getTracks().forEach(track => track.stop());
+            }
+            
+            isPrivacyMode = false;
+            isBackgroundMode = false;
+            video.srcObject = null;
+            
+            if (detectionInterval) {
+                clearInterval(detectionInterval);
+            }
+            
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            document.getElementById('scanLine').classList.add('hidden');
+            document.getElementById('cameraPlaceholder').classList.remove('hidden');
+            document.getElementById('privacyWarning').classList.remove('active');
+            document.getElementById('mainContainer').classList.remove('privacy-active');
+            
+            releaseWakeLock(); // Release wake lock
+            updateStatus('offline');
+        }
+
+        function updateStatus(status) {
+            const icon = document.getElementById('statusIcon');
+            const text = document.getElementById('statusText');
+            const desc = document.getElementById('statusDescription');
+            
+            switch(status) {
+                case 'offline':
+                    icon.className = 'w-3 h-3 rounded-full bg-gray-500';
+                    text.textContent = 'System Offline';
+                    text.className = 'font-semibold text-gray-400';
+                    desc.textContent = 'Enable privacy protection to start monitoring';
+                    break;
+                case 'active':
+                    icon.className = 'w-3 h-3 rounded-full bg-green-500 animate-pulse';
+                    text.textContent = 'Protection Active';
+                    text.className = 'font-semibold text-green-400';
+                    desc.textContent = 'Monitoring for unauthorized viewers';
+                    break;
+                case 'warning':
+                    icon.className = 'w-3 h-3 rounded-full bg-red-500 animate-pulse';
+                    text.textContent = 'Privacy Alert';
+                    text.className = 'font-semibold text-red-400';
+                    desc.textContent = 'Unauthorized viewing detected';
+                    break;
+            }
+        }
+
+        // Face Detection Loop
+        async function startDetection() {
+            const sensitivity = parseInt(document.getElementById('sensitivitySlider').value);
+            const threshold = sensitivity === 1 ? 0.6 : sensitivity === 2 ? 0.5 : 0.4;
+            
+            detectionInterval = setInterval(async () => {
+                if (!isPrivacyMode || isProcessing) return;
+                
+                isProcessing = true;
+                
+                try {
+                    const detections = await faceapi.detectAllFaces(video, 
+                        new faceapi.TinyFaceDetectorOptions({ inputSize: 320, scoreThreshold: 0.5 }))
+                        .withFaceLandmarks()
+                        .withFaceDescriptors();
+                    
+                    document.getElementById('faceCount').textContent = `${detections.length} face${detections.length !== 1 ? 's' : ''}`;
+                    
+                    // Clear canvas
+                    ctx.clearRect(0, 0, canvas.width, canvas.height);
+                    
+                    let authorizedFaceFound = false;
+                    let unauthorizedFaceFound = false;
+                    
+                    detections.forEach((detection, i) => {
+                        const box = detection.detection.box;
+                        const descriptor = detection.descriptor;
+                        
+                        // Check if this matches registered face
+                        if (registeredDescriptor) {
+                            const distance = faceapi.euclideanDistance(descriptor, registeredDescriptor);
+                            // More lenient threshold for authorized user (0.6 is more lenient than 0.5)
+                            const isAuthorized = distance < 0.6;
+                            
+                            if (isAuthorized) {
+                                authorizedFaceFound = true;
+                                drawFaceBox(box, true, distance);
+                                console.log('Authorized face detected, distance:', distance.toFixed(3));
+                            } else {
+                                unauthorizedFaceFound = true;
+                                drawFaceBox(box, false, distance);
+                                console.log('Unauthorized face detected, distance:', distance.toFixed(3));
+                            }
+                        } else {
+                            // No face registered, treat all as unauthorized
+                            unauthorizedFaceFound = true;
+                            drawFaceBox(box, false, 1.0);
+                        }
+                    });
+                    
+                    // Privacy logic:
+                    // - Alert if ANY unauthorized face is detected (even if user is also present - someone is peeking!)
+                    // - Clear alert if no faces at all (user turned away)
+                    // - Clear alert if only authorized faces
+                    if (unauthorizedFaceFound) {
+                        // Someone unauthorized is looking - trigger alert
+                        triggerPrivacyAlert();
+                    } else if (detections.length === 0 || authorizedFaceFound) {
+                        // No faces OR only authorized faces - safe to clear
+                        clearPrivacyAlert();
+                    }
+                    
+                } catch (err) {
+                    console.error('Detection error:', err);
+                }
+                
+                isProcessing = false;
+            }, 500); // Check every 500ms
+        }
+
+        function drawFaceBox(box, isAuthorized, distance) {
+            const color = isAuthorized ? '#3b82f6' : '#ef4444';
+            const label = isAuthorized ? 'You' : 'Stranger';
+            
+            ctx.strokeStyle = color;
+            ctx.lineWidth = 3;
+            ctx.strokeRect(box.x, box.y, box.width, box.height);
+            
+            ctx.fillStyle = color;
+            ctx.font = '16px Inter';
+            ctx.fillText(`${label} (${(1-distance).toFixed(2)})`, box.x, box.y - 5);
+        }
+
+        function triggerPrivacyAlert() {
+            const warning = document.getElementById('privacyWarning');
+            const mainContainer = document.getElementById('mainContainer');
+            const blurEnabled = document.getElementById('blurToggle').checked;
+            const soundEnabled = document.getElementById('soundToggle').checked;
+            
+            if (!warning.classList.contains('active')) {
+                warning.classList.add('active');
+                if (blurEnabled) {
+                    mainContainer.classList.add('privacy-active');
+                }
+                updateStatus('warning');
+                
+                if (soundEnabled) {
+                    playAlertSound();
+                }
+            }
+        }
+
+        let clearAlertTimeout = null;
+        
+        function clearPrivacyAlert() {
+            const warning = document.getElementById('privacyWarning');
+            const mainContainer = document.getElementById('mainContainer');
+            
+            if (warning.classList.contains('active')) {
+                // Clear immediately when unauthorized person leaves or no face detected
+                if (clearAlertTimeout) {
+                    clearTimeout(clearAlertTimeout);
+                }
+                
+                clearAlertTimeout = setTimeout(() => {
+                    warning.classList.remove('active');
+                    mainContainer.classList.remove('privacy-active');
+                    updateStatus('active');
+                }, 500); // Small delay to prevent flickering
+            }
+        }
+
+        let pressTimer = null;
+        
+        function dismissWarning(btn) {
+            // Require long press to prevent accidental dismissal by peeker
+            if (pressTimer) {
+                clearTimeout(pressTimer);
+            }
+            
+            const originalText = 'I Understand (Owner)';
+            btn.textContent = 'Hold 3 seconds...';
+            btn.style.transform = 'scale(0.95)';
+            
+            // Remove previous listeners to prevent accumulation
+            btn.onmouseup = null;
+            btn.onmouseleave = null;
+            btn.ontouchend = null;
+            btn.ontouchcancel = null;
+            
+            pressTimer = setTimeout(() => {
+                document.getElementById('privacyWarning').classList.remove('active');
+                document.getElementById('mainContainer').classList.remove('privacy-active');
+                updateStatus('active');
+                btn.textContent = originalText;
+                btn.style.transform = '';
+                
+                // Initialize audio if not already done
+                initAudio();
+                
+                // Pause detection for 3 seconds to prevent immediate re-trigger
+                if (detectionInterval) {
+                    clearInterval(detectionInterval);
+                    setTimeout(() => {
+                        if (isPrivacyMode) startDetection();
+                    }, 3000);
+                }
+                
+                pressTimer = null;
+            }, 3000);
+            
+            const cancelPress = () => {
+                if (pressTimer) {
+                    clearTimeout(pressTimer);
+                    pressTimer = null;
+                }
+                btn.textContent = originalText;
+                btn.style.transform = '';
+                btn.onmouseup = null;
+                btn.onmouseleave = null;
+                btn.ontouchend = null;
+                btn.ontouchcancel = null;
+            };
+            
+            btn.onmouseup = cancelPress;
+            btn.onmouseleave = cancelPress;
+            btn.ontouchend = cancelPress;
+            btn.ontouchcancel = cancelPress;
+        }
+
+        function toggleBackgroundMode(enabled) {
+            isBackgroundMode = enabled;
+            if (enabled && isPrivacyMode) {
+                requestWakeLock();
+            } else if (!enabled && wakeLock) {
+                releaseWakeLock();
+            }
+        }
+
+        function playAlertSound() {
+            try {
+                if (!audioContext) {
+                    audioContext = new (window.AudioContext || window.webkitAudioContext)();
+                }
+                
+                if (audioContext.state === 'suspended') {
+                    audioContext.resume();
+                }
+                
+                const now = audioContext.currentTime;
+                
+                // Create multiple beeps for urgent alert
+                for (let i = 0; i < 3; i++) {
+                    const oscillator = audioContext.createOscillator();
+                    const gainNode = audioContext.createGain();
+                    
+                    oscillator.connect(gainNode);
+                    gainNode.connect(audioContext.destination);
+                    
+                    // High pitch warning sound
+                    oscillator.frequency.setValueAtTime(1200, now + i * 0.2);
+                    oscillator.frequency.exponentialRampToValueAtTime(800, now + i * 0.2 + 0.1);
+                    oscillator.type = 'square';
+                    
+                    // Loud volume
+                    gainNode.gain.setValueAtTime(0.8, now + i * 0.2);
+                    gainNode.gain.exponentialRampToValueAtTime(0.01, now + i * 0.2 + 0.15);
+                    
+                    oscillator.start(now + i * 0.2);
+                    oscillator.stop(now + i * 0.2 + 0.15);
+                }
+                
+                // Also vibrate if on mobile
+                if (navigator.vibrate) {
+                    navigator.vibrate([200, 100, 200, 100, 400]);
+                }
+                
+            } catch (e) {
+                console.error('Audio error:', e);
+            }
+        }
+
+        // Registration
+        async function startRegistration() {
+            const btn = document.getElementById('registerBtn');
+            const progress = document.getElementById('registrationProgress');
+            const progressBar = document.getElementById('progressBar');
+            const progressText = document.getElementById('progressText');
+            
+            try {
+                // Get camera if not already active
+                if (!stream) {
+                    stream = await navigator.mediaDevices.getUserMedia({ 
+                        video: { facingMode: 'user' } 
+                    });
+                    video.srcObject = stream;
+                    await new Promise(resolve => video.onloadedmetadata = resolve);
+                    canvas.width = video.videoWidth;
+                    canvas.height = video.videoHeight;
+                }
+                
+                btn.disabled = true;
+                btn.classList.add('opacity-50');
+                progress.classList.remove('hidden');
+                
+                // Capture multiple samples for better accuracy
+                const samples = [];
+                const sampleCount = 5;
+                
+                for (let i = 0; i < sampleCount; i++) {
+                    progressBar.style.width = `${((i + 1) / sampleCount) * 100}%`;
+                    progressText.textContent = `Capturing sample ${i + 1} of ${sampleCount}...`;
+                    
+                    const detection = await faceapi.detectSingleFace(video, 
+                        new faceapi.TinyFaceDetectorOptions())
+                        .withFaceLandmarks()
+                        .withFaceDescriptor();
+                    
+                    if (detection) {
+                        samples.push(detection.descriptor);
+                        
+                        // Draw box to show detection
+                        ctx.clearRect(0, 0, canvas.width, canvas.height);
+                        const box = detection.detection.box;
+                        ctx.strokeStyle = '#3b82f6';
+                        ctx.lineWidth = 4;
+                        ctx.strokeRect(box.x, box.y, box.width, box.height);
+                    } else {
+                        progressText.textContent = 'No face detected. Please look at camera.';
+                        i--; // Retry
+                    }
+                    
+                    await new Promise(r => setTimeout(r, 800));
+                }
+                
+                // Average the samples
+                if (samples.length > 0) {
+                    const avgDescriptor = new Float32Array(128);
+                    for (let i = 0; i < 128; i++) {
+                        let sum = 0;
+                        for (let j = 0; j < samples.length; j++) {
+                            sum += samples[j][i];
+                        }
+                        avgDescriptor[i] = sum / samples.length;
+                    }
+                    
+                    registeredDescriptor = avgDescriptor;
+                    localStorage.setItem('registeredFace', JSON.stringify(Array.from(avgDescriptor)));
+                    
+                    progressText.textContent = 'Registration complete!';
+                    progressText.classList.add('text-green-400');
+                    
+                    setTimeout(() => {
+                        showRegisteredState();
+                        if (!isPrivacyMode) {
+                            // Keep camera off if privacy mode not active
+                            stream.getTracks().forEach(track => track.stop());
+                            video.srcObject = null;
+                        }
+                    }, 1000);
+                }
+                
+            } catch (err) {
+                console.error('Registration error:', err);
+                alert('Registration failed. Please ensure camera access is allowed.');
+                progressText.textContent = 'Registration failed';
+                progressText.classList.add('text-red-400');
+            } finally {
+                btn.disabled = false;
+                btn.classList.remove('opacity-50');
+            }
+        }
+
+        function showRegisteredState() {
+            document.getElementById('registrationArea').classList.add('hidden');
+            document.getElementById('registeredInfo').classList.remove('hidden');
+            lucide.createIcons();
+        }
+
+        function clearRegistration() {
+            if (confirm('Are you sure you want to remove your registered face?')) {
+                localStorage.removeItem('registeredFace');
+                registeredDescriptor = null;
+                document.getElementById('registrationArea').classList.remove('hidden');
+                document.getElementById('registeredInfo').classList.add('hidden');
+                document.getElementById('registrationProgress').classList.add('hidden');
+                document.getElementById('progressBar').style.width = '0%';
+                
+                // Turn off privacy mode if active
+                if (isPrivacyMode) {
+                    stopPrivacyMode();
+                }
+            }
+        }
+
+        function updateSensitivity(value) {
+            const label = value === '1' ? 'Low' : value === '2' ? 'Medium' : 'High';
+            document.getElementById('sensitivityValue').textContent = label;
+        }
+
+        // Handle page visibility change - maintain detection in background
+        document.addEventListener('visibilitychange', async () => {
+            if (isPrivacyMode) {
+                if (document.hidden) {
+                    // Page is hidden - try to maintain wake lock and detection
+                    console.log('App running in background mode');
+                    
+                    // Reacquire wake lock if lost
+                    if (!wakeLock && isBackgroundMode) {
+                        await requestWakeLock();
+                    }
+                    
+                    // Ensure audio context is ready for when we come back
+                    if (audioContext && audioContext.state === 'suspended') {
+                        await audioContext.resume();
+                    }
+                } else {
+                    // Page is visible again
+                    console.log('App visible');
+                    if (audioContext && audioContext.state === 'suspended') {
+                        await audioContext.resume();
+                    }
+                }
+            }
+        });
+        
+        // Handle beforeunload to clean up
+        window.addEventListener('beforeunload', () => {
+            stopPrivacyMode();
+        });
+
+        // Prevent screenshots (CSS only, limited effectiveness)
+        document.addEventListener('keyup', (e) => {
+            if (e.key === 'PrintScreen') {
+                alert('Screenshots disabled while Privacy Shield is active');
+            }
+        });
+    </script>
+</body>
+</html>
